@@ -6,7 +6,9 @@ from __future__ import unicode_literals
 
 import unittest
 
+from dfvfs.lib import definitions
 from dfvfs.lib import errors
+from dfvfs.path import factory as path_spec_factory
 from dfvfs.path import fake_path_spec
 from dfvfs.path import os_path_spec
 from dfvfs.path import qcow_path_spec
@@ -16,6 +18,8 @@ from dfvfs.path import tsk_path_spec
 from dfvfs.helpers import source_scanner
 from dfvfs.helpers import volume_scanner
 from dfvfs.resolver import resolver
+from dfvfs.volume import tsk_volume_system
+from dfvfs.volume import vshadow_volume_system
 
 from tests import test_lib as shared_test_lib
 
@@ -105,6 +109,58 @@ class VolumeScannerTest(shared_test_lib.BaseTestCase):
       scan_node = scan_node.sub_nodes[0]
 
     return scan_node
+
+  @shared_test_lib.skipUnlessHasTestFile(['tsk_volume_system.raw'])
+  def testGetNormalizedTSKVolumeIdentifiers(self):
+    """Tests the _GetNormalizedTSKVolumeIdentifiers function."""
+    test_mediator = TestVolumeScannerMediator()
+    test_scanner = volume_scanner.VolumeScanner(test_mediator)
+
+    test_path = self._GetTestFilePath(['tsk_volume_system.raw'])
+    test_os_path_spec = path_spec_factory.Factory.NewPathSpec(
+        definitions.TYPE_INDICATOR_OS, location=test_path)
+    test_tsk_partition_path_spec = path_spec_factory.Factory.NewPathSpec(
+        definitions.TYPE_INDICATOR_TSK_PARTITION, parent=test_os_path_spec)
+
+    volume_system = tsk_volume_system.TSKVolumeSystem()
+    volume_system.Open(test_tsk_partition_path_spec)
+
+    volume_identifiers = test_scanner._GetNormalizedTSKVolumeIdentifiers(
+        volume_system, ['p1', 'p2'])
+    self.assertEqual(volume_identifiers, [1, 2])
+
+    with self.assertRaises(KeyError):
+      test_scanner._GetNormalizedTSKVolumeIdentifiers(volume_system, [1, 2])
+
+    with self.assertRaises(KeyError):
+      test_scanner._GetNormalizedTSKVolumeIdentifiers(volume_system, ['p3'])
+
+  @shared_test_lib.skipUnlessHasTestFile(['vsstest.qcow2'])
+  def testGetNormalizedVShadowVolumeIdentifiers(self):
+    """Tests the _GetNormalizedVShadowVolumeIdentifiers function."""
+    test_mediator = TestVolumeScannerMediator()
+    test_scanner = volume_scanner.VolumeScanner(test_mediator)
+
+    test_path = self._GetTestFilePath(['vsstest.qcow2'])
+    test_os_path_spec = path_spec_factory.Factory.NewPathSpec(
+        definitions.TYPE_INDICATOR_OS, location=test_path)
+    test_qcow_path_spec = path_spec_factory.Factory.NewPathSpec(
+        definitions.TYPE_INDICATOR_QCOW, parent=test_os_path_spec)
+    test_vss_path_spec = path_spec_factory.Factory.NewPathSpec(
+        definitions.TYPE_INDICATOR_VSHADOW, parent=test_qcow_path_spec)
+
+    volume_system = vshadow_volume_system.VShadowVolumeSystem()
+    volume_system.Open(test_vss_path_spec)
+
+    volume_identifiers = test_scanner._GetNormalizedVShadowVolumeIdentifiers(
+        volume_system, ['vss1', 'vss2'])
+    self.assertEqual(volume_identifiers, [1, 2])
+
+    with self.assertRaises(KeyError):
+      test_scanner._GetNormalizedTSKVolumeIdentifiers(volume_system, [1, 2])
+
+    with self.assertRaises(KeyError):
+      test_scanner._GetNormalizedTSKVolumeIdentifiers(volume_system, ['vss3'])
 
   @shared_test_lib.skipUnlessHasTestFile(['tsk_volume_system.raw'])
   def testGetTSKPartitionIdentifiers(self):

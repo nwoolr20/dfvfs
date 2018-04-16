@@ -83,25 +83,104 @@ class VolumeScanner(object):
       mediator (VolumeScannerMediator): a volume scanner mediator.
     """
     super(VolumeScanner, self).__init__()
+    self._credentials = []
+    self._credential_configurations = []
     self._mediator = mediator
     self._source_path = None
     self._source_scanner = source_scanner.SourceScanner()
     self._source_type = None
     self._vss_stores = None
 
-  def _GetTSKPartitionIdentifiers(self, scan_node):
-    """Determines the TSK partition identifiers.
+  def _AddCredentialConfiguration(
+      self, path_spec, credential_type, credential_data):
+    """Adds a credential configuration.
 
     Args:
-      scan_node (ScanNode): scan node.
+      path_spec (dfvfs.PathSpec): path specification.
+      credential_type (str): credential type.
+      credential_data (bytes): credential data.
+    """
+    credential_configuration = configurations.CredentialConfiguration(
+        credential_data=credential_data, credential_type=credential_type,
+        path_spec=path_spec)
+
+    self._credential_configurations.append(credential_configuration)
+
+  def _GetNormalizedTSKVolumeIdentifiers(
+      self, volume_system, volume_identifiers):
+    """Retrieves the normalized TSK volume identifiers.
+
+    Args:
+      volume_system (dfvfs.TSKVolumeSystem): volume system.
+      volume_identifiers (list[str]): allowed volume identifiers.
+
+    Returns:
+      list[int]: normalized volume identifiers.
+    """
+    normalized_volume_identifiers = []
+    for volume_identifier in volume_identifiers:
+      volume = volume_system.GetVolumeByIdentifier(volume_identifier)
+      if not volume:
+        raise errors.SourceScannerError(
+            'Volume missing for identifier: {0:s}.'.format(volume_identifier))
+
+      try:
+        volume_identifier = int(volume.identifier[1:], 10)
+        normalized_volume_identifiers.append(volume_identifier)
+      except ValueError:
+        pass
+
+    return normalized_volume_identifiers
+
+  def _GetNormalizedVShadowVolumeIdentifiers(
+      self, volume_system, volume_identifiers):
+    """Retrieves the normalized VShadow volume identifiers.
+
+    Args:
+      volume_system (dfvfs.VShadowVolumeSystem): volume system.
+      volume_identifiers (list[str]): allowed volume identifiers.
+
+    Returns:
+      list[int]: normalized volume identifiers.
+    """
+    normalized_volume_identifiers = []
+    for volume_identifier in volume_identifiers:
+      volume = volume_system.GetVolumeByIdentifier(volume_identifier)
+      if not volume:
+        raise errors.SourceScannerError(
+            'Volume missing for identifier: {0:s}.'.format(volume_identifier))
+
+      try:
+        volume_identifier = int(volume.identifier[3:], 10)
+        normalized_volume_identifiers.append(volume_identifier)
+      except ValueError:
+        pass
+
+    return normalized_volume_identifiers
+
+  # TODO: refactor this method that it become more clear what it is
+  # supposed to do.
+  def _GetTSKPartitionIdentifiers(
+      self, scan_node, partition_offset=None, partitions=None):
+    """Determines the TSK partition identifiers.
+
+    This method first checks for the preferred partition number, then for
+    the preferred partition offset and falls back to prompt the user if
+    no usable preferences were specified.
+
+    Args:
+      scan_node (dfvfs.SourceScanNode): scan node.
+      partition_offset (Optional[int]): preferred partition byte offset.
+      partitions (Optional[list[str]]): preferred partition identifiers.
 
     Returns:
       list[str]: partition identifiers.
 
     Raises:
-      ScannerError: if the format of or within the source is not supported or
-          the scan node is invalid or if the volume for a specific identifier
-          cannot be retrieved.
+      RuntimeError: if the volume for a specific identifier cannot be
+          retrieved.
+      ScannerError: if the format of or within the source
+          is not supported or the the scan node is invalid.
     """
     if not scan_node or not scan_node.path_spec:
       raise errors.ScannerError('Invalid scan node.')
@@ -112,36 +191,59 @@ class VolumeScanner(object):
     volume_identifiers = self._source_scanner.GetVolumeIdentifiers(
         volume_system)
     if not volume_identifiers:
-      raise errors.ScannerError('No partitions found.')
+      self._output_writer.Write('[WARNING] No partitions found.\n')
+      return None
 
-    if not self._mediator or len(volume_identifiers) == 1:
+    normalized_volume_identifiers = self._GetNormalizedTSKVolumeIdentifiers(
+        volume_system, volume_identifiers)
+
+    if partitions:
+      if partitions == ['all']:
+        partitions = range(1, volume_system.number_of_volumes + 1)
+
+      if not set(partitions).difference(normalized_volume_identifiers):
+        return [
+            'p{0:d}'.format(partition_number)
+            for partition_number in partitions]
+
+    if partition_offset is not None:
+      for volume in volume_system.volumes:
+        volume_extent = volume.extents[0]
+        if volume_extent.offset == partition_offset:
+          return [volume.identifier]
+
+      self._output_writer.Write((
+          '[WARNING] No such partition with offset: {0:d} '
+          '(0x{0:08x}).\n').format(partition_offset))
+
+    if len(volume_identifiers) == 1:
       return volume_identifiers
 
     try:
-      partition_identifiers = self._mediator.GetPartitionIdentifiers(
-          volume_system, volume_identifiers)
-
+      selected_volume_identifiers = (
+          self._mediator.PromptUserForPartitionIdentifiers(
+              volume_system, volume_identifiers))
     except KeyboardInterrupt:
-      raise errors.ScannerError('File system scan aborted.')
+      raise errors.UserAbort('File system scan aborted.')
 
-    if partition_identifiers is None:
-      return []
+    if selected_volume_identifiers == 'all':
+      return volume_identifiers
 
-    return partition_identifiers
+    return [selected_volume_identifiers]
 
-  def _GetVSSStoreIdentifiers(self, scan_node):
+  def _GetVSSStoreIdentifiers(self, scan_node, vss_stores=None):
     """Determines the VSS store identifiers.
 
     Args:
-      scan_node (ScanNode): scan node.
+      scan_node (dfvfs.SourceScanNode): scan node.
+      vss_stores (Optional[list[str]]): preferred VSS store identifiers.
 
     Returns:
-      list[int]: selected VSS store numbers.
+      list[str] VSS store identifiers.
 
     Raises:
-      ScannerError: if the format of or within the source is not supported,
-          the scan node is invalid or no mediator is provided and VSS store
-          identifiers are found.
+      ScannerError: if the format of or within the source
+          is not supported or the the scan node is invalid.
     """
     if not scan_node or not scan_node.path_spec:
       raise errors.ScannerError('Invalid scan node.')
@@ -151,25 +253,17 @@ class VolumeScanner(object):
 
     volume_identifiers = self._source_scanner.GetVolumeIdentifiers(
         volume_system)
-    if not self._mediator and not volume_identifiers:
+    if not volume_identifiers:
       return []
 
-    if not self._mediator:
-      raise errors.ScannerError(
-          'Unable to proceed VSS. Identifiers found but no mediator to '
-          'determine how they should be used.')
-
     try:
-      store_numbers = self._mediator.GetVSSStoreIdentifiers(
-          volume_system, volume_identifiers)
-
+      selected_store_identifiers = (
+          self._mediator.PromptUserForVSSStoreIdentifiers(
+              volume_system, volume_identifiers, vss_stores=vss_stores))
     except KeyboardInterrupt:
       raise errors.UserAbort('File system scan aborted.')
 
-    if store_numbers is None:
-      return []
-
-    return store_numbers
+    return selected_store_identifiers
 
   def _ScanFileSystem(self, file_system_scan_node, base_path_specs):
     """Scans a file system scan node for file systems.
@@ -211,13 +305,16 @@ class VolumeScanner(object):
         self._ScanVolumeScanNode(scan_context, sub_scan_node, base_path_specs)
 
   def _ScanVolumeScanNode(
-      self, scan_context, volume_scan_node, base_path_specs):
+      self, scan_context, volume_scan_node, base_path_specs,
+      selected_vss_stores=None, vss_only=False):
     """Scans an individual volume scan node for volume and file systems.
 
     Args:
       scan_context (SourceScannerContext): source scanner context.
       volume_scan_node (SourceScanNode): volume scan node.
       base_path_specs (list[PathSpec]): file system base path specifications.
+      selected_vss_stores (Optional[list[str]]): selected VSS store identifiers.
+      vss_only (Optional[bool]): True if only VSS should be scanned.
 
     Raises:
       ScannerError: if the format of or within the source
@@ -244,10 +341,16 @@ class VolumeScanner(object):
           scan_context, scan_node, base_path_specs)
 
     elif scan_node.type_indicator == definitions.TYPE_INDICATOR_VSHADOW:
-      self._ScanVolumeScanNodeVSS(scan_node, base_path_specs)
+      self._ScanVolumeScanNodeVSS(
+          scan_node, base_path_specs, selected_vss_stores=selected_vss_stores,
+          vss_only=vss_only)
 
     elif scan_node.type_indicator in definitions.FILE_SYSTEM_TYPE_INDICATORS:
-      self._ScanFileSystem(scan_node, base_path_specs)
+      if not vss_only or not selected_vss_stores or (
+          self._mediator and self._mediator.PromptUserForVSSCurrentVolume()):
+        # TODO: determine if this is needed.
+        # self._ScanFileSystem(scan_node, base_path_specs)
+        base_path_specs.append(scan_node.path_spec)
 
   def _ScanVolumeScanNodeEncrypted(
       self, scan_context, volume_scan_node, base_path_specs):
@@ -269,20 +372,41 @@ class VolumeScanner(object):
       credentials = credentials_manager.CredentialsManager.GetCredentials(
           volume_scan_node.path_spec)
 
-      result = self._mediator.UnlockEncryptedVolume(
-          self._source_scanner, scan_context, volume_scan_node, credentials)
+      result = False
+      for credential_type, credential_data in self._credentials:
+        if credential_type not in credentials.CREDENTIALS:
+          continue
+
+        result = self._source_scanner.Unlock(
+            scan_context, volume_scan_node.path_spec, credential_type,
+            credential_data)
+
+        if result:
+          self._AddCredentialConfiguration(
+              volume_scan_node.path_spec, credential_type, credential_data)
+          break
+
+      if self._credentials and not result:
+        # TODO: consider raising an exception
+        self._mediator.WarnUserForUnableUnlockEncryptedVolume()
+
+      if not result:
+        result = self._mediator.PromptUserForEncryptedVolumeCredential(
+            scan_context, volume_scan_node, credentials)
 
     if result:
       self._source_scanner.Scan(
           scan_context, scan_path_spec=volume_scan_node.path_spec)
       self._ScanVolume(scan_context, volume_scan_node, base_path_specs)
 
-  def _ScanVolumeScanNodeVSS(self, volume_scan_node, base_path_specs):
+  def _ScanVolumeScanNodeVSS(
+      self, volume_scan_node, base_path_specs, selected_vss_stores=None):
     """Scans a VSS volume scan node for volume and file systems.
 
     Args:
       volume_scan_node (SourceScanNode): volume scan node.
       base_path_specs (list[PathSpec]): file system base path specifications.
+      selected_vss_stores (Optional[list[str]]): selected VSS store identifiers.
 
     Raises:
       ScannerError: if a VSS sub scan node scannot be retrieved or
@@ -296,7 +420,11 @@ class VolumeScanner(object):
     if location != '/':
       return
 
-    vss_store_identifiers = self._GetVSSStoreIdentifiers(volume_scan_node)
+    # TODO: vss_stores=self._vss_stores
+    vss_store_identifiers = self._GetVSSStoreIdentifiers(
+        volume_scan_node, vss_stores=self._vss_stores)
+
+    selected_vss_stores.extend(vss_store_identifier)
 
     self._vss_stores = list(vss_store_identifiers)
 
@@ -322,11 +450,14 @@ class VolumeScanner(object):
       #     scan_context, scan_path_spec=sub_scan_node.path_spec)
       # self._ScanFileSystem(sub_scan_node, base_path_specs)
 
-  def GetBasePathSpecs(self, source_path):
+  def GetBasePathSpecs(
+      self, source_path, partition_offset=None, partitions=None):
     """Determines the base path specifications.
 
     Args:
       source_path (str): source path.
+      partition_offset (Optional[int]): preferred partition byte offset.
+      partitions (Optional[list[str]]): preferred partition identifiers.
 
     Returns:
       list[PathSpec]: path specifications.
@@ -338,6 +469,11 @@ class VolumeScanner(object):
     """
     if not source_path:
       raise errors.ScannerError('Invalid source path.')
+
+    # Symbolic links are resolved here and not earlier to preserve the user
+    # specified source path in storage and reporting.
+    if os.path.islink(source_path):
+      source_path = os.path.realpath(source_path)
 
     # Note that os.path.exists() does not support Windows device paths.
     if (not source_path.startswith('\\\\.\\') and
@@ -352,7 +488,7 @@ class VolumeScanner(object):
       self._source_scanner.Scan(scan_context)
     except (ValueError, errors.BackEndError) as exception:
       raise errors.ScannerError(
-          'Unable to scan source with error: {0:s}.'.format(exception))
+          'Unable to scan source with error: {0!s}.'.format(exception))
 
     self._source_path = source_path
     self._source_type = scan_context.source_type
@@ -374,7 +510,8 @@ class VolumeScanner(object):
       partition_identifiers = None
 
     else:
-      partition_identifiers = self._GetTSKPartitionIdentifiers(scan_node)
+      partition_identifiers = self._GetTSKPartitionIdentifiers(
+          scan_node, partition_offset=partition_offset, partitions=partitions)
 
     base_path_specs = []
     if not partition_identifiers:
@@ -385,6 +522,9 @@ class VolumeScanner(object):
         location = '/{0:s}'.format(partition_identifier)
         sub_scan_node = scan_node.GetSubNodeByLocation(location)
         self._ScanVolume(scan_context, sub_scan_node, base_path_specs)
+
+    if not base_path_specs:
+      raise errors.ScannerError('No supported file system found in source.')
 
     return base_path_specs
 
