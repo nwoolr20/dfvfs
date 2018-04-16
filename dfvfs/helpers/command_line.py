@@ -32,6 +32,7 @@ class CLIVolumeScannerMediator(volume_scanner.VolumeScannerMediator):
     self._encode_errors = 'strict'
     # TODO: add default output writer.
     self._output_writer = None
+    # TODO: set preferred encoding or move encoding to output writer.
     self._preferred_encoding = locale.getpreferredencoding()
 
   def _EncodeString(self, string):
@@ -44,7 +45,7 @@ class CLIVolumeScannerMediator(volume_scanner.VolumeScannerMediator):
       # Note that encode() will first convert string into a Unicode string
       # if necessary.
       encoded_string = string.encode(
-          self.preferred_encoding, errors=self._encode_errors)
+          self._preferred_encoding, errors=self._encode_errors)
     except UnicodeEncodeError:
       if self._encode_errors == 'strict':
         logging.error(
@@ -55,7 +56,7 @@ class CLIVolumeScannerMediator(volume_scanner.VolumeScannerMediator):
         self._encode_errors = 'replace'
 
       encoded_string = string.encode(
-          self.preferred_encoding, errors=self._encode_errors)
+          self._preferred_encoding, errors=self._encode_errors)
 
     return encoded_string
 
@@ -508,6 +509,20 @@ class CLIVolumeScannerMediator(volume_scanner.VolumeScannerMediator):
         print('')
 
     return result
+
+  def WarnUserForNoPartitionAtOffset(self, partition_offset):
+    """Warns the user that not partitions were found.
+
+    Args:
+      partition_offset (int): offset where the partition is supposed to start.
+    """
+    self._output_writer.Write(
+        '[WARNING] No such partition with offset: {0:d} (0x{0:08x}).\n'.format(
+            partition_offset))
+
+  def WarnUserForNoPartitionsFound(self):
+    """Warns the user that not partitions were found."""
+    self._output_writer.Write('[WARNING] No partitions found.\n')
 
   def WarnUserForUnableUnlockEncryptedVolume(self):
     """Warns the user that an encrypted volume could not be unlocked."""

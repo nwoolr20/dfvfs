@@ -121,7 +121,7 @@ class VolumeScanner(object):
     for volume_identifier in volume_identifiers:
       volume = volume_system.GetVolumeByIdentifier(volume_identifier)
       if not volume:
-        raise errors.SourceScannerError(
+        raise errors.ScannerError(
             'Volume missing for identifier: {0:s}.'.format(volume_identifier))
 
       try:
@@ -147,7 +147,7 @@ class VolumeScanner(object):
     for volume_identifier in volume_identifiers:
       volume = volume_system.GetVolumeByIdentifier(volume_identifier)
       if not volume:
-        raise errors.SourceScannerError(
+        raise errors.ScannerError(
             'Volume missing for identifier: {0:s}.'.format(volume_identifier))
 
       try:
@@ -191,7 +191,7 @@ class VolumeScanner(object):
     volume_identifiers = self._source_scanner.GetVolumeIdentifiers(
         volume_system)
     if not volume_identifiers:
-      self._output_writer.Write('[WARNING] No partitions found.\n')
+      self._mediator.WarnUserForNoPartitionsFound()
       return None
 
     normalized_volume_identifiers = self._GetNormalizedTSKVolumeIdentifiers(
@@ -212,9 +212,7 @@ class VolumeScanner(object):
         if volume_extent.offset == partition_offset:
           return [volume.identifier]
 
-      self._output_writer.Write((
-          '[WARNING] No such partition with offset: {0:d} '
-          '(0x{0:08x}).\n').format(partition_offset))
+      self._mediator.WarnUserForNoPartitionAtOffset(partition_offset)
 
     if len(volume_identifiers) == 1:
       return volume_identifiers
@@ -424,7 +422,7 @@ class VolumeScanner(object):
     vss_store_identifiers = self._GetVSSStoreIdentifiers(
         volume_scan_node, vss_stores=self._vss_stores)
 
-    selected_vss_stores.extend(vss_store_identifier)
+    selected_vss_stores.extend(vss_store_identifiers)
 
     self._vss_stores = list(vss_store_identifiers)
 
