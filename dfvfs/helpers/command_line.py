@@ -30,6 +30,8 @@ class CLIVolumeScannerMediator(volume_scanner.VolumeScannerMediator):
     """Initializes a volume scanner mediator."""
     super(CLIVolumeScannerMediator, self).__init__()
     self._encode_errors = 'strict'
+    # TODO: add default input reader.
+    self._input_reader = None
     # TODO: add default output writer.
     self._output_writer = None
     # TODO: set preferred encoding or move encoding to output writer.
