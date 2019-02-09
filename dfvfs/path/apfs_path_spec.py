@@ -19,12 +19,15 @@ class APFSPathSpec(path_spec.PathSpec):
   TYPE_INDICATOR = definitions.TYPE_INDICATOR_APFS
 
   def __init__(
-      self, identifier=None, location=None, parent=None, **kwargs):
+      self, extended_attribute=None, identifier=None, location=None,
+      parent=None, **kwargs):
     """Initializes a path specification.
 
     Note that an APFS path specification must have a parent.
 
     Args:
+      extended_attribute (Optional[str]): extended attribute name, where None
+          indicates the default data stream.
       identifier (Optional[int]): identifier.
       location (Optional[str]): location.
       parent (Optional[PathSpec]): parent path specification.

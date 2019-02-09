@@ -454,11 +454,14 @@ class NTFSFileEntry(file_entry.FileEntry):
         not self._fsntfs_file_entry.has_default_data_stream()):
       return None
 
-    # Make sure to make the changes on a copy of the path specification, so we
-    # do not alter self.path_spec.
-    path_spec = copy.deepcopy(self.path_spec)
-    if data_stream_name:
-      setattr(path_spec, 'data_stream', data_stream_name)
+    if not data_stream_name:
+      path_spec = self.path_spec
+    else:
+      # Make sure to make the changes on a copy of the path specification, so we
+      # do not alter self.path_spec.
+      path_spec = copy.deepcopy(self.path_spec)
+      if data_stream_name:
+        setattr(path_spec, 'data_stream', data_stream_name)
 
     return resolver.Resolver.OpenFileObject(
         path_spec, resolver_context=self._resolver_context)

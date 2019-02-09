@@ -269,13 +269,13 @@ class APFSFileEntryTest(shared_test_lib.BaseTestCase):
     file_entry = self._file_system.GetFileEntryByPathSpec(path_spec)
     self.assertIsNotNone(file_entry)
 
-    self.assertEqual(file_entry.number_of_data_streams, 0)
+    self.assertEqual(file_entry.number_of_data_streams, 1)
 
     data_stream_names = []
     for data_stream in file_entry.data_streams:
       data_stream_names.append(data_stream.name)
 
-    self.assertEqual(data_stream_names, [])
+    self.assertEqual(data_stream_names, [''])
 
   def testGetDataStream(self):
     """Tests the GetDataStream function."""
@@ -543,13 +543,13 @@ class APFSFileEntryTestEncrypted(shared_test_lib.BaseTestCase):
     file_entry = self._file_system.GetFileEntryByPathSpec(path_spec)
     self.assertIsNotNone(file_entry)
 
-    self.assertEqual(file_entry.number_of_data_streams, 0)
+    self.assertEqual(file_entry.number_of_data_streams, 1)
 
     data_stream_names = []
     for data_stream in file_entry.data_streams:
       data_stream_names.append(data_stream.name)
 
-    self.assertEqual(data_stream_names, [])
+    self.assertEqual(data_stream_names, [''])
 
   def testGetDataStream(self):
     """Tests the GetDataStream function."""

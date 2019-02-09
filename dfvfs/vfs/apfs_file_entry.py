@@ -3,12 +3,42 @@
 
 from __future__ import unicode_literals
 
+import copy
+
 from dfdatetime import apfs_time as dfdatetime_apfs_time
 
 from dfvfs.lib import definitions
 from dfvfs.lib import errors
+from dfvfs.resolver import resolver
 from dfvfs.path import apfs_path_spec
 from dfvfs.vfs import file_entry
+
+
+class APFSDataStream(file_entry.DataStream):
+  """File system data stream that uses pyfsapfs."""
+
+  def __init__(self, fsapfs_extended_attribute):
+    """Initializes the data stream.
+
+    Args:
+      fsapfs_extended_attribute (pyfsapfs.extended_attribute): APFS extended
+          attribute.
+    """
+    super(APFSDataStream, self).__init__()
+    self._fsapfs_extended_attribute = fsapfs_extended_attribute
+
+  @property
+  def name(self):
+    """str: name."""
+    return getattr(self._fsapfs_extended_attribute, 'name', '')
+
+  def IsDefault(self):
+    """Determines if the data stream is the default data stream.
+
+    Returns:
+      bool: True if the data stream is the default data stream.
+    """
+    return not self._fsapfs_extended_attribute
 
 
 class APFSDirectory(file_entry.Directory):
@@ -91,6 +121,29 @@ class APFSFileEntry(file_entry.FileEntry):
 
     self.entry_type = self._ENTRY_TYPES.get(
         fsapfs_file_entry.file_mode & 0xf000, None)
+
+  def _GetDataStreams(self):
+    """Retrieves the data streams.
+
+    Returns:
+      list[APFSDataStream]: data streams.
+    """
+    if self._data_streams is None:
+      self._data_streams = []
+      data_stream = APFSDataStream(None)
+      self._data_streams.append(data_stream)
+
+      for fsapfs_extended_attribute in (
+          self._fsapfs_file_entry.extended_attributes):
+        # Ignore extended attributes that are handled by libfsapfs.
+        if fsapfs_extended_attribute.name in (
+            'com.apple.decmpfs', 'com.apple.fs.symlink'):
+          continue
+
+        data_stream = APFSDataStream(fsapfs_extended_attribute)
+        self._data_streams.append(data_stream)
+
+    return self._data_streams
 
   def _GetDirectory(self):
     """Retrieves a directory.
@@ -202,6 +255,28 @@ class APFSFileEntry(file_entry.FileEntry):
       pyfsapfs.file_entry: APFS file entry.
     """
     return self._fsapfs_file_entry
+
+  def GetFileObject(self, data_stream_name=''):
+    """Retrieves the file-like object.
+
+    Args:
+      data_stream_name (Optional[str]): data stream name, where an empty
+          string represents the default data stream.
+
+    Returns:
+      APFSFileIO: file-like object or None.
+    """
+    if not data_stream_name:
+      path_spec = self.path_spec
+    else:
+      # Make sure to make the changes on a copy of the path specification, so we
+      # do not alter self.path_spec.
+      path_spec = copy.deepcopy(self.path_spec)
+      if data_stream_name:
+        setattr(path_spec, 'extended_attribute', data_stream_name)
+
+    return resolver.Resolver.OpenFileObject(
+        path_spec, resolver_context=self._resolver_context)
 
   def GetLinkedFileEntry(self):
     """Retrieves the linked file entry, e.g. for a symbolic link.

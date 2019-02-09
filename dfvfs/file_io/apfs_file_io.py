@@ -21,10 +21,12 @@ class APFSFile(file_io.FileIO):
     """
     super(APFSFile, self).__init__(resolver_context)
     self._file_system = None
+    self._fsapfs_extended_attribute = None
     self._fsapfs_file_entry = None
 
   def _Close(self):
     """Closes the file-like object."""
+    self._fsapfs_extended_attribute = None
     self._fsapfs_file_entry = None
 
     self._file_system.Close()
@@ -49,10 +51,7 @@ class APFSFile(file_io.FileIO):
     if not path_spec:
       raise ValueError('Missing path specification.')
 
-    data_stream = getattr(path_spec, 'data_stream', None)
-    if data_stream:
-      raise errors.NotSupported(
-          'Open data stream: {0:s} not supported.'.format(data_stream))
+    data_stream = getattr(path_spec, 'extended_attribute', None)
 
     self._file_system = resolver.Resolver.OpenFileSystem(
         path_spec, resolver_context=self._resolver_context)
@@ -61,10 +60,19 @@ class APFSFile(file_io.FileIO):
     if not file_entry:
       raise IOError('Unable to open file entry.')
 
+    fsapfs_extended_attribute = None
     fsapfs_file_entry = file_entry.GetAPFSFileEntry()
     if not fsapfs_file_entry:
       raise IOError('Unable to open APFS file entry.')
 
+    if data_stream:
+      fsapfs_extended_attribute = fsapfs_file_entry.get_extended_attribute_by_name(
+          data_stream)
+      if not fsapfs_extended_attribute:
+        raise IOError('Unable to open extended attribute: {0:s}.'.format(
+            data_stream))
+
+    self._fsapfs_extended_attribute = fsapfs_extended_attribute
     self._fsapfs_file_entry = fsapfs_file_entry
 
   # Note: that the following functions do not follow the style guide
@@ -91,6 +99,8 @@ class APFSFile(file_io.FileIO):
     if not self._is_open:
       raise IOError('Not opened.')
 
+    if self._fsapfs_extended_attribute:
+      return self._fsapfs_extended_attribute.read(size=size)
     return self._fsapfs_file_entry.read(size=size)
 
   def seek(self, offset, whence=os.SEEK_SET):
@@ -108,12 +118,15 @@ class APFSFile(file_io.FileIO):
     if not self._is_open:
       raise IOError('Not opened.')
 
-    self._fsapfs_file_entry.seek(offset, whence)
+    if self._fsapfs_extended_attribute:
+      self._fsapfs_extended_attribute.seek(offset, whence)
+    else:
+      self._fsapfs_file_entry.seek(offset, whence)
 
   def get_offset(self):
     """Retrieves the current offset into the file-like object.
 
-    Return:
+    Returns:
       int: current offset into the file-like object.
 
     Raises:
@@ -123,6 +136,8 @@ class APFSFile(file_io.FileIO):
     if not self._is_open:
       raise IOError('Not opened.')
 
+    if self._fsapfs_extended_attribute:
+      return self._fsapfs_extended_attribute.get_offset()
     return self._fsapfs_file_entry.get_offset()
 
   def get_size(self):
@@ -138,4 +153,6 @@ class APFSFile(file_io.FileIO):
     if not self._is_open:
       raise IOError('Not opened.')
 
+    if self._fsapfs_extended_attribute:
+      return self._fsapfs_extended_attribute.get_size()
     return self._fsapfs_file_entry.get_size()
