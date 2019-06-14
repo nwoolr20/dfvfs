@@ -17,14 +17,21 @@ class FindSpec(object):
   """Find specification."""
 
   def __init__(
-      self, case_sensitive=True, file_entry_types=None, is_allocated=True,
-      location=None, location_glob=None, location_regex=None,
-      location_separator='/'):
+      self, case_sensitive=True, data_stream=None, data_stream_glob=None,
+      data_stream_regex=None, data_stream_separator=None,
+      file_entry_types=None, is_allocated=True, location=None,
+      location_glob=None, location_regex=None, location_separator='/'):
     """Initializes a find specification.
 
     Args:
       case_sensitive (Optional[bool]): True if string matches should be case
           sensitive.
+      data_stream (Optional[str]): name of the data stream.
+      data_stream_glob (Optional[str]): glob of the data stream name.
+      data_stream_regex (Optional[str]): regular expression of the data stream
+          name.
+      data_stream_separator (Optional[str]): separator of data stream in
+          the last location segment.
       file_entry_types (Optional[list[str]]): file entry types, where
           None indicates no preference.
       is_allocated (Optional[bool]): True if the file entry should be
@@ -32,19 +39,18 @@ class FindSpec(object):
       location (Optional[str|list[str]]): location or location segments,
           where None indicates no preference. The location should be defined
           relative to the root of the file system. Note that the string will
-          be split into segments based on the file system specific path
-          segment separator.
+          be split into segments based on the location segment separator.
       location_glob (Optional[str:list[str]]): location glob or location glob
           segments, where None indicates no preference. The location glob
           should be defined relative to the root of the file system. The default
           is None. Note that the string will be split into segments based on
-          the file system specific path segment separator.
+          the location segment separator.
       location_regex (Optional[str|list[str]]): location regular expression or
           location regular expression segments, where None indicates no
           preference. The location regular expression should be defined
           relative to the root of the file system. The default is None. Note
-          that the string will be split into segments based on the file system
-          specific path segment separator.
+          that the string will be split into segments based on the location
+          segment separator.
       location_separator (str): location segment separator.
 
     Raises:
@@ -52,7 +58,9 @@ class FindSpec(object):
           is not supported.
       ValueError: if the location, location_glob or location_regex arguments
           are used at the same time, or if location separator is missing and
-          the location argument is of type string.
+          the location argument is of type string, of if the data_stream,
+          data_stream_glob, data_stream_regex and data_stream_separator are
+          used at the same time.
     """
     location_arguments = [argument for argument in (
         location, location_glob, location_regex) if argument]
@@ -66,7 +74,19 @@ class FindSpec(object):
         location_arguments[0], py2to3.STRING_TYPES) and not location_separator):
       raise ValueError('Missing location separator.')
 
+    data_stream_arguments = [argument for argument in (
+        data_stream, data_stream_glob, data_stream_regex,
+        data_stream_separator) if argument]
+
+    if len(data_stream_arguments) > 1:
+      raise ValueError((
+          'The data_stream, data_stream_glob, data_stream_regex and '
+          'data_stream_separator arguments cannot be used at same time.'))
+
     super(FindSpec, self).__init__()
+    self._data_stream = data_stream
+    self._data_stream_glob = data_stream_glob
+    self._data_stream_regex = data_stream_regex
     self._file_entry_types = file_entry_types
     self._is_allocated = is_allocated
     self._is_case_sensitive = case_sensitive
@@ -130,6 +150,12 @@ class FindSpec(object):
 
     if self._location_segments is not None:
       self._number_of_location_segments = len(self._location_segments)
+
+      # Check last location segment for a data stream name.
+      if (data_stream_separator and
+          data_stream_separator in self._location_segments[-1]):
+        self._location_segments[-1], _, self._data_stream_name = (
+            self._location_segments[-1].rpartition(data_stream_separator))
 
     # TODO: add support for name
     # TODO: add support for owner (user, group)

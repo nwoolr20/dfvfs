@@ -124,6 +124,10 @@ class FindSpecTest(shared_test_lib.BaseTestCase):
     with self.assertRaises(TypeError):
       find_spec = file_system_searcher.FindSpec(location_regex={})
 
+    with self.assertRaises(ValueError):
+      find_spec = file_system_searcher.FindSpec(
+          data_stream='data_stream', data_stream_glob='data_stre?m')
+
   def testCheckFileEntryType(self):
     """Test the _CheckFileEntryType() function."""
     file_system = self._CreateTestFileSystem()
