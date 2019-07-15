@@ -38,10 +38,10 @@ class _GzipDecompressorState(object):
       stream_start (int): offset to the compressed stream within the containing
           file object.
     """
+    self._compressed_data = b''
     self._decompressor = zlib_decompressor.DeflateDecompressor()
     self.last_read = stream_start
     self.uncompressed_offset = 0
-    self._compressed_data = b''
 
   def Read(self, file_object):
     """Reads the next uncompressed data from the gzip stream.
